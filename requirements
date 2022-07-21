@@ -1,0 +1,5 @@
+black
+nltk
+numpy
+tqdm
+pytest
