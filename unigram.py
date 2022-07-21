@@ -1,7 +1,4 @@
-import collections, re
-from typing import Iterable, NamedTuple
-import nltk
-import json
+import collections
 from tqdm import tqdm
 import numpy as np 
 
@@ -26,6 +23,7 @@ def create_seed_vocab(corpus: str):
     for word in corpus.split(' '):
         word_counts[word] += 1
     
+    # Store counts for all substrings
     substring_counts = collections.defaultdict(int)
     total_sum = 0
     for word, freq in word_counts.items():
@@ -37,6 +35,13 @@ def create_seed_vocab(corpus: str):
     # log probs for every substring         
     substring_probs = {substr: -np.log(freq/total_sum) for substr, freq in substring_counts.items()}
     return substring_probs
+
+
+def viterbi_step():
+    """ 
+    Viterbi forward/backward inference for a given word
+    """
+    return None 
 
 if __name__ == '__main__':
 
