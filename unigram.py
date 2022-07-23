@@ -1,7 +1,11 @@
 import collections
 from tqdm import tqdm
 import numpy as np 
+import logging 
+from typing import Iterable, Mapping, Tuple
 
+
+logging.basicConfig(level=logging.INFO, filename="log/unigram.log", filemode="w")
 
 def create_seed_vocab(corpus: str):
     """ 
@@ -33,21 +37,74 @@ def create_seed_vocab(corpus: str):
                 total_sum += freq 
 
     # log probs for every substring         
-    substring_probs = {substr: -np.log(freq/total_sum) for substr, freq in substring_counts.items()}
+    substring_probs = {substr: -np.log(freq/total_sum) for substr, freq in substring_counts.items() if freq > 1 or len(substr) == 1}
     return substring_probs
 
 
-def viterbi_step():
+def viterbi_forward(word: str, vocab: Mapping[str,float]) -> Tuple[list, np.array]:
     """ 
-    Viterbi forward/backward inference for a given word
+    Viterbi forward step. Get all tokenizations for a word
     """
-    return None 
+    
+    best_subword_slices_arr = [None] * (len(word) + 1)
+    neg_loglik = np.zeros(len(word)+1)
+
+    
+    for i in range(1,len(word)+1):
+        # iterate up to current char
+        neg_loglik[i] = np.inf
+
+        for j in range(i):
+            # indexing through everything up to the current character
+
+            if word[j:i] in vocab.keys():
+
+                # compute log prob of the token
+                logp = vocab[word[j:i]]
+
+                # get logp of best probability up to this point 
+                logp_prev = neg_loglik[j]
+
+                # Compute the new subword probability 
+                s = logp_prev + logp
+                if s < neg_loglik[i]:
+                    neg_loglik[i] = s
+                    best_subword_slices_arr[i] = (j,i)
+
+    return best_subword_slices_arr,neg_loglik
+
+
+def viterbi_backward(word, subword_slices, subword_losses):
+
+    tokenized_word = []
+    curr_slice = subword_slices[-1]
+    tokenized_loss = 0
+
+    while curr_slice is not None:
+        tokenized_word.append(word[curr_slice[0]:curr_slice[1]])
+        tokenized_loss += subword_losses[curr_slice[1]]
+        curr_slice = subword_slices[curr_slice[0]]
+    
+    return tokenized_word[::-1], tokenized_loss
+
+def tokenize_word(word: str, vocab: Mapping[str,float]):
+    """
+    Given a word, and current vocabulary, performs Viterbi forward and backward
+    pass and returns the tokenized word along with its losses
+    """
+
+    subword_slices_arr,neg_loglik_arr = viterbi_forward(word, vocab = vocab)
+    return viterbi_backward(word,subword_slices_arr, neg_loglik_arr)
+    
 
 if __name__ == '__main__':
 
-    print(create_seed_vocab(corpus = 'abc ab'))
-            
+    corpus = "hug pug pun bun hugs"
+    
+    vocab = create_seed_vocab(corpus = corpus)
 
+    for word in corpus.split(" "):
+        print(tokenize_word(word,vocab))
 
 
 
