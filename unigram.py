@@ -1,5 +1,4 @@
 import collections
-from tqdm import tqdm
 import numpy as np
 import logging
 from typing import Iterable, Mapping, Tuple
@@ -8,7 +7,6 @@ from typing import Iterable, Mapping, Tuple
 logging.basicConfig(
     level=logging.INFO, filename="log/unigram.log", filemode="w"
 )
-
 
 def create_seed_vocab(corpus: str) -> Mapping[str, float]:
     """
@@ -39,13 +37,52 @@ def create_seed_vocab(corpus: str) -> Mapping[str, float]:
                 substring_counts[word[idx_start:idx_end]] += freq
                 total_sum += freq
 
-    # log probs for every substring
+    # This block of code removes all substrings that only appear once. 
+    # Since we are removing them, total_sum has to be adjusted too
+    for substr, freq in substring_counts.items():
+        if freq == 1 and len(substr) > 1:
+            total_sum -= 1
+
     substring_probs = {
         substr: -np.log(freq / total_sum)
         for substr, freq in substring_counts.items()
         if freq > 1 or len(substr) == 1
     }
-    return substring_probs
+
+
+    return substring_probs, word_counts
+
+def compute_vocab_probs(corpus, vocab) -> Tuple[Mapping[str, float], Mapping[str,int]]:
+    """
+    From a given vocab and corpus, finds all the current probs
+
+    Ex:
+    >>> compute_substring_probs(corpus = 'abc ab', vocab = ['a','b','c','ab'])
+    {'a': 1.252762968495368, 'ab': 1.252762968495368, 'b': 1.252762968495368, 'c': 1.9459101490553135}
+    """
+
+    word_counts = collections.defaultdict(int)
+
+    # First, just count the occurence of each word in the vocab
+    for word in corpus.split(" "):
+        word_counts[word] += 1
+
+
+    substring_counts = collections.defaultdict(int)
+    total_sum = 0
+    for word, freq in word_counts.items():
+        for idx_start in range(len(word)):
+            for idx_end in range(idx_start + 1, len(word) + 1):
+                substr = word[idx_start:idx_end]
+                if substr in vocab:
+                    substring_counts[substr] += freq
+                    total_sum += freq
+
+    substring_probs = {
+        substr: -np.log(freq / total_sum)
+        for substr, freq in substring_counts.items()
+    }
+    return substring_probs, word_counts
 
 
 def viterbi_forward(
@@ -106,15 +143,44 @@ def tokenize_word(
     pass and returns the tokenized word along with its losses
     """
 
-    subword_slices_arr, neg_loglik_arr = viterbi_forward(word, vocab=vocab)
+    subword_slices_arr, neg_loglik_arr = viterbi_forward(word, vocab)
     return viterbi_backward(word, subword_slices_arr, neg_loglik_arr)
+
 
 
 if __name__ == "__main__":
 
-    corpus = "hug pug pun bun hugs"
+    corpus = """The Viterbi algorithm is a dynamic programming algorithm for obtaining the maximum a posteriori probability estimate of the most likely sequence of hidden states—called the Viterbi path—that results in a sequence of observed events, especially in the context of Markov information sources and hidden Markov models."""
 
-    vocab = create_seed_vocab(corpus=corpus)
+    vocab, word_counts = create_seed_vocab(corpus=corpus)
+    
+    base_corpus_loss = 0
+    for word, freq in word_counts.items():
+        base_corpus_loss += freq*tokenize_word(word, vocab)[1]
+    
+    print(f"Base corpus loss: {base_corpus_loss} - Number of tokens: {len(vocab.keys())}")
 
-    for word in corpus.split(" "):
-        print(tokenize_word(word, vocab))
+    print(tokenize_word("Markov", vocab))
+    vocab_complement = list(set(vocab.keys()) - set(["Markov"]))
+    vocab_complement, word_counts = compute_vocab_probs(corpus, vocab_complement)
+
+    print(tokenize_word("Markov", vocab_complement))
+
+    # for key in vocab.keys():
+
+    #     # Technically this keeps punctuation...
+    #     if len(key) > 1:
+    #         vocab_complement = list(set(vocab.keys()) - set([key]))
+    #         vocab_complement, word_counts = compute_vocab_probs(corpus, vocab_complement)
+    #         corpus_loss = 0
+
+    #         for word, freq in word_counts.items():
+    #             corpus_loss += freq*tokenize_word(word, vocab_complement)[1]
+            
+    #         # should be negative. We expect loss to go up if we remove tokens, since we have done the optimal tokenization
+    #         loss_diff = base_corpus_loss - corpus_loss
+    #         print(f"Increase in loss from removing token {key} : {loss_diff}")
+
+
+        
+
