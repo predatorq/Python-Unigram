@@ -2,6 +2,7 @@ import collections
 import numpy as np
 import logging
 from typing import Iterable, Mapping, Tuple
+from tqdm import tqdm
 
 
 logging.basicConfig(
@@ -48,8 +49,6 @@ def create_seed_vocab(corpus: str) -> Mapping[str, float]:
         for substr, freq in substring_counts.items()
         if freq > 1 or len(substr) == 1
     }
-
-
     return substring_probs, word_counts
 
 def compute_vocab_probs(corpus, vocab) -> Tuple[Mapping[str, float], Mapping[str,int]]:
@@ -70,7 +69,7 @@ def compute_vocab_probs(corpus, vocab) -> Tuple[Mapping[str, float], Mapping[str
 
     substring_counts = collections.defaultdict(int)
     total_sum = 0
-    for word, freq in word_counts.items():
+    for word, freq in tqdm(word_counts.items(), desc = 'Computing Substring Frequences'):
         for idx_start in range(len(word)):
             for idx_end in range(idx_start + 1, len(word) + 1):
                 substr = word[idx_start:idx_end]
@@ -82,6 +81,7 @@ def compute_vocab_probs(corpus, vocab) -> Tuple[Mapping[str, float], Mapping[str
         substr: -np.log(freq / total_sum)
         for substr, freq in substring_counts.items()
     }
+
     return substring_probs, word_counts
 
 
@@ -150,7 +150,8 @@ def tokenize_word(
 
 if __name__ == "__main__":
 
-    corpus = """The Viterbi algorithm is a dynamic programming algorithm for obtaining the maximum a posteriori probability estimate of the most likely sequence of hidden states—called the Viterbi path—that results in a sequence of observed events, especially in the context of Markov information sources and hidden Markov models."""
+    with open('text.txt', 'r', encoding='UTF-8') as f:
+        corpus = f.read()
 
     vocab, word_counts = create_seed_vocab(corpus=corpus)
     
@@ -160,27 +161,38 @@ if __name__ == "__main__":
     
     print(f"Base corpus loss: {base_corpus_loss} - Number of tokens: {len(vocab.keys())}")
 
-    print(tokenize_word("Markov", vocab))
-    vocab_complement = list(set(vocab.keys()) - set(["Markov"]))
-    vocab_complement, word_counts = compute_vocab_probs(corpus, vocab_complement)
+    with tqdm() as pbar:
+        while len(vocab.keys()) > 1000:
 
-    print(tokenize_word("Markov", vocab_complement))
+            eta = 0.1
+            scores_diff = {}
+            for key in tqdm(vocab.keys(), desc = 'Computing token removals'):
 
-    # for key in vocab.keys():
+                # Technically this keeps punctuation...
+                if len(key) > 1:
+                    vocab_complement = list(set(vocab.keys()) - set([key]))
+                    vocab_complement, word_counts = compute_vocab_probs(corpus, vocab_complement)
+                    corpus_loss = 0
 
-    #     # Technically this keeps punctuation...
-    #     if len(key) > 1:
-    #         vocab_complement = list(set(vocab.keys()) - set([key]))
-    #         vocab_complement, word_counts = compute_vocab_probs(corpus, vocab_complement)
-    #         corpus_loss = 0
-
-    #         for word, freq in word_counts.items():
-    #             corpus_loss += freq*tokenize_word(word, vocab_complement)[1]
+                    for word, freq in word_counts.items():
+                        corpus_loss += freq*tokenize_word(word, vocab_complement)[1]
+                    
+                    # should be negative. We expect loss to go up if we remove tokens, since we have done the optimal tokenization?
+                    # maybe not though? Since there will be redundant tokenizations of words that are never used
+                    # loss_diff = base_corpus_loss - corpus_loss
+                    # print(f"Increase in loss from removing token {key} : {loss_diff}")
+                    scores_diff[key] = base_corpus_loss - corpus_loss
             
-    #         # should be negative. We expect loss to go up if we remove tokens, since we have done the optimal tokenization
-    #         loss_diff = base_corpus_loss - corpus_loss
-    #         print(f"Increase in loss from removing token {key} : {loss_diff}")
+            # Sort in descending order by diff in loss
+            sorted_scores = sorted(scores_diff.items(), key=lambda x: x[1], reverse=True)
+
+            for i in range(int(len(vocab) * eta)):
+                _ = vocab.pop(sorted_scores[i][0])
+            pbar.update(1)
 
 
+    final_vocab =  compute_vocab_probs(corpus, vocab)
+
+    print(final_vocab)
         
 
