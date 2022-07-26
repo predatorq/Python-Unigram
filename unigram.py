@@ -1,8 +1,12 @@
 import collections
+from curses import raw
 import numpy as np
 import logging
-from typing import Iterable, Mapping, Tuple
+from typing import Iterable, Mapping, Tuple, NamedTuple, Union
 from tqdm import tqdm
+import json 
+import regex as re
+from bytes import bytes_to_unicode
 
 
 logging.basicConfig(
@@ -25,9 +29,11 @@ def create_seed_vocab(corpus: str) -> Mapping[str, float]:
 
     word_counts = collections.defaultdict(int)
 
-    # First, just count the occurence of each word in the vocab
-    for word in corpus.split(" "):
-        word_counts[word] += 1
+    pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+    tokens = re.findall(pat, corpus)
+    for word in tokens:
+        token_byte_shifted = byte_encode_word(word)
+        word_counts[token_byte_shifted] += 1
 
     # Store counts for all substrings
     substring_counts = collections.defaultdict(int)
@@ -62,14 +68,18 @@ def compute_vocab_probs(corpus, vocab) -> Tuple[Mapping[str, float], Mapping[str
 
     word_counts = collections.defaultdict(int)
 
-    # First, just count the occurence of each word in the vocab
-    for word in corpus.split(" "):
-        word_counts[word] += 1
+    byte_encoder = bytes_to_unicode()
+
+    pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+    tokens = re.findall(pat, corpus)
+    for word in tokens:
+        token_byte_shifted = byte_encode_word(word)
+        word_counts[token_byte_shifted] += 1
 
 
     substring_counts = collections.defaultdict(int)
     total_sum = 0
-    for word, freq in tqdm(word_counts.items(), desc = 'Computing Substring Frequences'):
+    for word, freq in word_counts.items():
         for idx_start in range(len(word)):
             for idx_end in range(idx_start + 1, len(word) + 1):
                 substr = word[idx_start:idx_end]
@@ -139,36 +149,60 @@ def tokenize_word(
     word: str, vocab: Mapping[str, float]
 ) -> Tuple[Iterable[str], float]:
     """
-    Given a word, and current vocabulary, performs Viterbi forward and backward
-    pass and returns the tokenized word along with its losses
+    Given a (byte-encoded) word, and current vocabulary, performs Viterbi forward and backward
+    pass and returns the tokenized word along with its losses.
+
     """
 
     subword_slices_arr, neg_loglik_arr = viterbi_forward(word, vocab)
     return viterbi_backward(word, subword_slices_arr, neg_loglik_arr)
 
 
+def byte_encode_word(word):
+    """
+    Performs proper byte encoding of a word using the bytes_to_unicode function
+    """
+    token_bytes = word.encode('utf-8')
+    byte_encoder = bytes_to_unicode()
+    token_byte_shifted = ''.join(byte_encoder[b] for b in token_bytes)
+    return token_byte_shifted
 
-if __name__ == "__main__":
+def tokenize_inference(string:str, vocab: Mapping[str, float]) -> Iterable[str]:
+    """
+    Inference tokenization function
+    """
+    # split string with regex 
+    pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+    tokens = re.findall(pat, string)
+    tokenized_sentence =[]
+    for word in tokens:
+        token_byte_shifted = byte_encode_word(word)
+        tokenized_sentence += tokenize_word(token_byte_shifted,vocab)[0]
+    return tokenized_sentence
 
-    with open('text.txt', 'r', encoding='UTF-8') as f:
-        corpus = f.read()
+class UnigramToken(NamedTuple):
+    token: Iterable[str]
+    probs: Iterable[int]
+
+def train_tokenizer(corpus:str, save_path:Union[str,None], min_num_tokens:int = 32000) -> Mapping[int, UnigramToken]:
+    """
+    Trains a byte-level unigram tokenizer on a given corpus
+    """
 
     vocab, word_counts = create_seed_vocab(corpus=corpus)
-    
     base_corpus_loss = 0
     for word, freq in word_counts.items():
         base_corpus_loss += freq*tokenize_word(word, vocab)[1]
-    
-    print(f"Base corpus loss: {base_corpus_loss} - Number of tokens: {len(vocab.keys())}")
+
+    logging.info(f'Base Vocab Size: {len(word_counts.items())} - Base Vocab Loss: {base_corpus_loss}')
 
     with tqdm() as pbar:
-        while len(vocab.keys()) > 1000:
+        while len(vocab.keys()) > min_num_tokens:
 
             eta = 0.1
             scores_diff = {}
             for key in tqdm(vocab.keys(), desc = 'Computing token removals'):
 
-                # Technically this keeps punctuation...
                 if len(key) > 1:
                     vocab_complement = list(set(vocab.keys()) - set([key]))
                     vocab_complement, word_counts = compute_vocab_probs(corpus, vocab_complement)
@@ -177,10 +211,6 @@ if __name__ == "__main__":
                     for word, freq in word_counts.items():
                         corpus_loss += freq*tokenize_word(word, vocab_complement)[1]
                     
-                    # should be negative. We expect loss to go up if we remove tokens, since we have done the optimal tokenization?
-                    # maybe not though? Since there will be redundant tokenizations of words that are never used
-                    # loss_diff = base_corpus_loss - corpus_loss
-                    # print(f"Increase in loss from removing token {key} : {loss_diff}")
                     scores_diff[key] = base_corpus_loss - corpus_loss
             
             # Sort in descending order by diff in loss
@@ -190,9 +220,41 @@ if __name__ == "__main__":
                 _ = vocab.pop(sorted_scores[i][0])
             pbar.update(1)
 
+    final_vocab, _ =  compute_vocab_probs(corpus, vocab)
 
-    final_vocab =  compute_vocab_probs(corpus, vocab)
+    tokenized_vocab = {}
+    for i, (key,value) in enumerate(final_vocab.items()):
+        tokenized_vocab[i] = UnigramToken(key,value)
+    
+    if save_path is not None:
+        with open(save_path, "w") as j:
+            json.dump(tokenized_vocab, j, indent=4)
+    
+    return final_vocab
 
-    print(final_vocab)
-        
+
+def load_saved_tokenizer(save_path):
+    
+    with open(save_path) as f:
+        raw_dict = json.load(f)
+
+    vocab_dict = {}
+    for _,value in raw_dict.items():
+        vocab_dict[value[0]] = [value[1]]
+
+    return vocab_dict
+
+
+if __name__ == "__main__":
+
+    with open('text.txt', 'r', encoding='UTF-8') as f:
+        corpus = f.read()
+
+    final_vocab, _ =  train_tokenizer(corpus, save_path='tokenization.json', min_num_tokens=1024)
+    final_vocab = load_saved_tokenizer('tokenization.json')
+
+    words = 'this is a test string hey!'
+    print(tokenize_inference(words,final_vocab))
+
+
 
