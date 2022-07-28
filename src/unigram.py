@@ -51,6 +51,15 @@ def create_seed_vocab(corpus: str) -> Mapping[str, float]:
                     substring_counts[word[idx_start:idx_end]] += freq
                     total_sum += freq
 
+    # In a 'real' corpus this probably wouldn't happen but we just want to make 
+    # sure all of the raw UTF-8 bytes are included in the corpus. If they don't appear
+    # just log them with a frequency of 1 and update the total sum accordingly
+
+    for _, unicode_bytes in byte_encoder.items():
+        if unicode_bytes not in substring_counts:
+            substring_counts[unicode_bytes] += 1
+            total_sum += 1
+
     # This block of code removes all substrings that only appear once.
     # Since we are removing them, total_sum has to be adjusted too
     for substr, freq in substring_counts.items():
@@ -95,6 +104,16 @@ def compute_vocab_probs(
                 if substr in vocab:
                     substring_counts[substr] += freq
                     total_sum += freq
+    
+    # In a 'real' corpus this probably wouldn't happen but we just want to make 
+    # sure all of the raw UTF-8 bytes are included in the corpus. If they don't appear
+    # just log them with a frequency of 1 and update the total sum accordingly
+    byte_encoder = bytes_to_unicode()
+    for _, unicode_bytes in byte_encoder.items():
+        if unicode_bytes not in substring_counts:
+            substring_counts[unicode_bytes] += 1
+            total_sum += 1
+
 
     substring_probs = {
         substr: -np.log(freq / total_sum)
@@ -245,6 +264,7 @@ def train_tokenizer(
             for key in tqdm(vocab.keys(), desc="Computing token removals"):
 
                 if len(key) > 1:
+                    # print(key)
                     vocab_complement = list(set(vocab.keys()) - set([key]))
                     vocab_complement, word_counts = compute_vocab_probs(
                         corpus, vocab_complement
