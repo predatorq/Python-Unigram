@@ -12,14 +12,22 @@ logging.basicConfig(
     level=logging.INFO, filename="log/unigram.log", filemode="w"
 )
 
+
 class UnigramToken(NamedTuple):
     token: Iterable[str]
     probs: Iterable[int]
 
 
-class UnigramTokenizer:
+class TokenizerError(Exception):
+    pass
 
-    def __init__(self, corpus_path: Union[str,None] = None, vocab_path: Union[str,None] = None) -> None:
+
+class UnigramTokenizer:
+    def __init__(
+        self,
+        corpus_path: Union[str, None] = None,
+        vocab_path: Union[str, None] = None,
+    ) -> None:
         """
         Initializes a byte-level Unigram tokenizer as described in:
 
@@ -28,25 +36,38 @@ class UnigramTokenizer:
         <https://arxiv.org/abs/1804.10959>
 
         """
-        
-        assert corpus_path is not None or vocab_path is not None, "Must provide either a corpus or a saved vocabulary path"
-        
-        self.vocab = None 
+
+        if corpus_path is None and vocab_path is None:
+            raise TokenizerError(
+                "Must provide either a corpus or a saved vocabulary path"
+            )
+
+        self.vocab = None
         self.corpus = None
 
-        if corpus_path is not None:
-            with open(corpus_path, encoding='utf-8') as f:
-                self.corpus = f.read()        
-        else:
-            self.vocab = self.load_saved_tokenizer(save_path=vocab_path)
+        try:
+            if corpus_path is not None:
+                with open(corpus_path, encoding="utf-8") as f:
+                    self.corpus = f.read()
+            else:
+                self.vocab = self.load_saved_tokenizer(save_path=vocab_path)
+        except Exception as e:
+            raise TokenizerError(str(e))
 
-    def train_tokenizer(self, save_path: str, proportion_to_remove: float = 0.1, min_vocab_size: int = 32000) -> Mapping[int, UnigramToken]:
+    def train_tokenizer(
+        self,
+        save_path: str,
+        proportion_to_remove: float = 0.1,
+        min_vocab_size: int = 32000,
+    ) -> Mapping[int, UnigramToken]:
         """
         Trains a byte-level unigram tokenizer on a given corpus
         """
 
-        assert self.vocab is None, "Tokenizer has already been instantiated with a trained vocabulary."
-        vocab, word_counts = self.create_seed_vocab(corpus=self.corpus)
+        assert (
+            self.vocab is None
+        ), "Tokenizer has already been instantiated with a trained vocabulary."
+        vocab, word_counts = self.create_seed_vocab()
         base_corpus_loss = 0
         for word, freq in word_counts.items():
             base_corpus_loss += freq * self.tokenize_word(word, vocab)[1]
@@ -59,14 +80,16 @@ class UnigramTokenizer:
 
                     if len(key) > 1:
                         vocab_complement = list(set(vocab.keys()) - set([key]))
-                        vocab_complement, word_counts = self.compute_vocab_probs(
-                            self.corpus, vocab_complement
-                        )
+                        (
+                            vocab_complement,
+                            word_counts,
+                        ) = self.compute_vocab_probs(vocab_complement)
                         corpus_loss = 0
 
                         for word, freq in word_counts.items():
                             corpus_loss += (
-                                freq * self.tokenize_word(word, vocab_complement)[1]
+                                freq
+                                * self.tokenize_word(word, vocab_complement)[1]
                             )
 
                         scores_diff[key] = base_corpus_loss - corpus_loss
@@ -80,7 +103,7 @@ class UnigramTokenizer:
                     _ = vocab.pop(sorted_scores[i][0])
                 pbar.update(1)
 
-            final_vocab, _ = self.compute_vocab_probs(self.corpus, vocab)
+            final_vocab, _ = self.compute_vocab_probs(vocab)
 
             tokenized_vocab = {}
             for i, (key, value) in enumerate(final_vocab.items()):
@@ -93,20 +116,22 @@ class UnigramTokenizer:
             self.vocab = final_vocab
             return final_vocab
 
-    def load_saved_tokenizer(self,save_path: str) -> Mapping[str, float]:
+    def load_saved_tokenizer(self, save_path: str) -> Mapping[str, float]:
         """
         Loads a saved tokenizer.
         """
+        try:
+            with open(save_path) as f:
+                raw_dict = json.load(f)
 
-        with open(save_path) as f:
-            raw_dict = json.load(f)
+            vocab_dict = {}
+            for _, value in raw_dict.items():
+                vocab_dict[value[0]] = [value[1]]
 
-        vocab_dict = {}
-        for _, value in raw_dict.items():
-            vocab_dict[value[0]] = [value[1]]
-
-        self.vocab = vocab_dict
-        return vocab_dict
+            self.vocab = vocab_dict
+            return vocab_dict
+        except Exception as e:
+            raise TokenizerError(str(e))
 
     def create_seed_vocab(self) -> Mapping[str, float]:
         """
@@ -146,7 +171,7 @@ class UnigramTokenizer:
                         substring_counts[word[idx_start:idx_end]] += freq
                         total_sum += freq
 
-        # In a 'real' corpus this probably wouldn't happen but we just want to make 
+        # In a 'real' corpus this probably wouldn't happen but we just want to make
         # sure all of the raw UTF-8 bytes are included in the corpus. If they don't appear
         # just log them with a frequency of 1 and update the total sum accordingly
 
@@ -169,13 +194,13 @@ class UnigramTokenizer:
         return substring_probs, word_counts
 
     def compute_vocab_probs(
-        self, corpus, vocab
+        self, vocab
     ) -> Tuple[Mapping[str, float], Mapping[str, int]]:
         """
         From a given vocab and corpus, gets the negative log probs and returns as a dict
 
         Example::
-            >>> compute_substring_probs(corpus = 'abc ab', vocab = ['a','b','c','ab'])
+            >>> compute_vocab_probs(vocab = ['a','b','c','ab'])
             {'a': 1.252762968495368, 'ab': 1.252762968495368, 'b': 1.252762968495368, 'c': 1.9459101490553135}
         """
 
@@ -184,7 +209,7 @@ class UnigramTokenizer:
         pat = re.compile(
             r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         )
-        tokens = re.findall(pat, corpus)
+        tokens = re.findall(pat, self.corpus)
         for word in tokens:
             token_byte_shifted = self.byte_encode_word(word)
             word_counts[token_byte_shifted] += 1
@@ -198,8 +223,8 @@ class UnigramTokenizer:
                     if substr in vocab:
                         substring_counts[substr] += freq
                         total_sum += freq
-        
-        # In a 'real' corpus this probably wouldn't happen but we just want to make 
+
+        # In a 'real' corpus this probably wouldn't happen but we just want to make
         # sure all of the raw UTF-8 bytes are included in the corpus. If they don't appear
         # just log them with a frequency of 1 and update the total sum accordingly
         byte_encoder = bytes_to_unicode()
@@ -208,7 +233,6 @@ class UnigramTokenizer:
                 substring_counts[unicode_bytes] += 1
                 total_sum += 1
 
-
         substring_probs = {
             substr: -np.log(freq / total_sum)
             for substr, freq in substring_counts.items()
@@ -216,9 +240,8 @@ class UnigramTokenizer:
 
         return substring_probs, word_counts
 
-
     def viterbi_forward(
-        self,word: str, vocab: Mapping[str, float]
+        self, word: str, vocab: Mapping[str, float]
     ) -> Tuple[list, np.array]:
         """
         Viterbi forward step. Given a vocabulary with token probabilities returns
@@ -252,7 +275,10 @@ class UnigramTokenizer:
         return best_subword_slices_arr, neg_loglik
 
     def viterbi_backward(
-        self,word: str, subword_slices: Iterable[Tuple], subword_losses: Iterable[float]
+        self,
+        word: str,
+        subword_slices: Iterable[Tuple],
+        subword_losses: Iterable[float],
     ) -> Tuple[Iterable[str], float]:
         """
         Viterbi backward step. Given the word tokenizations up to every character,
@@ -270,9 +296,8 @@ class UnigramTokenizer:
 
         return tokenized_word[::-1], tokenized_loss
 
-    
     def tokenize_word(
-        self,word: str, vocab: Mapping[str, float]
+        self, word: str, vocab: Mapping[str, float]
     ) -> Tuple[Iterable[str], float]:
         """
         Given a (byte-encoded) word, and current vocabulary, performs Viterbi forward and backward
@@ -281,7 +306,7 @@ class UnigramTokenizer:
         Example::
             >>> tokenizer_vocab = load_saved_tokenizer("tokenizers/example_tokenizer.json")
             >>> word = "unigram"
-            >>> print(tokenize_inference(word, tokenizer_vocab))
+            >>> print(tokenize_word(word, tokenizer_vocab))
             (['un', 'ig', 'ra', 'm'], 70.90316975550996)
 
         """
@@ -289,8 +314,7 @@ class UnigramTokenizer:
         subword_slices_arr, neg_loglik_arr = self.viterbi_forward(word, vocab)
         return self.viterbi_backward(word, subword_slices_arr, neg_loglik_arr)
 
-
-    def byte_encode_word(self,word):
+    def byte_encode_word(self, word):
         """
         Performs proper byte encoding of a word using the bytes_to_unicode function
         """
@@ -299,9 +323,7 @@ class UnigramTokenizer:
         token_byte_shifted = "".join(byte_encoder[b] for b in token_bytes)
         return token_byte_shifted
 
-    def tokenize_inference(
-        self, string: str
-    ) -> Iterable[str]:
+    def tokenize_inference(self, string: str) -> Iterable[str]:
         """
         Tokenizes a string of text given a trained vocabulary
 
@@ -321,88 +343,10 @@ class UnigramTokenizer:
         tokenized_sentence = []
         for word in tokens:
             token_byte_shifted = self.byte_encode_word(word)
-            tokenized_sentence += self.tokenize_word(token_byte_shifted, self.vocab)[0]
+            tokenized_sentence += self.tokenize_word(
+                token_byte_shifted, self.vocab
+            )[0]
         return tokenized_sentence
-    
+
     def __call__(self, string: str) -> Iterable[str]:
         return self.tokenize_inference(string)
-
-
-
-    
-
-
-# def train_tokenizer(
-#     corpus: str,
-#     save_path: Union[str, None],
-#     remove_prob=0.1,
-#     min_num_tokens: int = 32000,
-# ) -> Mapping[int, UnigramToken]:
-#     """
-#     Trains a byte-level unigram tokenizer on a given corpus
-#     """
-
-#     vocab, word_counts = create_seed_vocab(corpus=corpus)
-#     base_corpus_loss = 0
-#     for word, freq in word_counts.items():
-#         base_corpus_loss += freq * tokenize_word(word, vocab)[1]
-
-#     logging.info(
-#         f"Base Vocab Size: {len(vocab.items())} - Base Vocab Loss: {base_corpus_loss}"
-#     )
-
-#     with tqdm() as pbar:
-#         while len(vocab.keys()) > min_num_tokens:
-
-#             scores_diff = {}
-#             for key in tqdm(vocab.keys(), desc="Computing token removals"):
-
-#                 if len(key) > 1:
-#                     vocab_complement = list(set(vocab.keys()) - set([key]))
-#                     vocab_complement, word_counts = compute_vocab_probs(
-#                         corpus, vocab_complement
-#                     )
-#                     corpus_loss = 0
-
-#                     for word, freq in word_counts.items():
-#                         corpus_loss += (
-#                             freq * tokenize_word(word, vocab_complement)[1]
-#                         )
-
-#                     scores_diff[key] = base_corpus_loss - corpus_loss
-
-#             # Sort in descending order by diff in loss
-#             sorted_scores = sorted(
-#                 scores_diff.items(), key=lambda x: x[1], reverse=True
-#             )
-
-#             for i in range(int(len(vocab) * remove_prob)):
-#                 _ = vocab.pop(sorted_scores[i][0])
-#             pbar.update(1)
-
-#     final_vocab, _ = compute_vocab_probs(corpus, vocab)
-
-#     tokenized_vocab = {}
-#     for i, (key, value) in enumerate(final_vocab.items()):
-#         tokenized_vocab[i] = UnigramToken(key, value)
-
-#     if save_path is not None:
-#         with open(save_path, "w") as j:
-#             json.dump(tokenized_vocab, j, indent=4)
-
-#     return final_vocab
-
-
-# def load_saved_tokenizer(save_path: str) -> Mapping[str, float]:
-#     """
-#     Loads a saved tokenizer.
-#     """
-
-#     with open(save_path) as f:
-#         raw_dict = json.load(f)
-
-#     vocab_dict = {}
-#     for _, value in raw_dict.items():
-#         vocab_dict[value[0]] = [value[1]]
-
-#     return vocab_dict
