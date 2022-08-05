@@ -1,6 +1,6 @@
 # Python Implementation of Unigram
 
-Pedagogical implementation of the Unigram Tokenization algorithm as described in [Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates](https://arxiv.org/abs/1804.10959). 
+Pedagogical implementation of the Unigram Tokenization algorithm as described in [Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates](https://arxiv.org/abs/1804.10959).
 
 # Example Use
 
@@ -17,12 +17,12 @@ tokenizer.train_tokenizer(save_path='myvocab.json', min_vocab_size=16384)
 ```python
 # Loading pretrained tokenizer
 tokenizer = UnigramTokenizer(vocab_path='tokenizers\sample_tokenizer.json')
+
 sentence = 'This is a short sentence.'
 tokenized_sentence = tokenizer.tokenize_inference(sentence)
 >>> print(tokenized_sentence)
 ['T', 'h', 'i', 's', 'Ġis', 'Ġa', 'Ġsh', 'or', 't', 'Ġs', 'en', 't', 'e', 'nce', '.']
 ```
-
 
 # Testing
 ```
