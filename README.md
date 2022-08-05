@@ -16,7 +16,7 @@ tokenizer.train_tokenizer(save_path='myvocab.json', min_vocab_size=16384)
 
 ```python
 # Loading pretrained tokenizer
-tokenizer = UnigramTokenizer(vocab_path='tokenizers\sample_tokenizer.json')
+tokenizer = UnigramTokenizer(vocab_path='tokenizers/sample_tokenizer.json')
 
 sentence = 'This is a short sentence.'
 tokenized_sentence = tokenizer.tokenize_inference(sentence)
