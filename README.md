@@ -4,8 +4,8 @@ Pedagogical implementation of the Unigram Tokenization algorithm as described in
 
 # Example Use
 
-```tokenizers/sample_tokenizer.json``` is a tokenized vocabulary of 977 tokens trained on the first chapter
-of Alice's Adventures in Wonderland sourced from [Project Gutenburg](https://www.gutenberg.org/ebooks/11).
+```tokenizers/sample_tokenizer.json``` is a tokenized vocabulary of size 977 trained on the first chapter
+of Alice's Adventures in Wonderland sourced from [Project Gutenburg](https://www.gutenberg.org/ebooks/11). Tokenizer was trained on UTF-8 bytes as is [common](https://openai.com/blog/better-language-models/) for many tokenizers.
 
 ```python 
 # Training from scratch (takes a long time!)
