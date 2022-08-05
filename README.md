@@ -7,16 +7,15 @@ Pedagogical implementation of the Unigram Tokenization algorithm as described in
 ```tokenizers/sample_tokenizer.json``` is a tokenized vocabulary of 977 tokens trained on the first chapter
 of Alice's Adventures in Wonderland sourced from [Project Gutenburg](https://www.gutenberg.org/ebooks/11).
 
-Training from scratch (takes a long time!)
 ```python 
-# Training a tokenizer from a corpus
+# Training from scratch (takes a long time!)
 tokenizer = UnigramTokenizer(corpus_path='mycorpus.txt')
 tokenizer.train_tokenizer(save_path='myvocab.json', min_vocab_size=16384)
 ```
 
-Loading pretrained tokenizer
+
 ```python
-# Loading a saved vocabulary
+# Loading pretrained tokenizer
 tokenizer = UnigramTokenizer(vocab_path='tokenizers\sample_tokenizer.json')
 sentence = 'This is a short sentence.'
 tokenized_sentence = tokenizer.tokenize_inference(sentence)
